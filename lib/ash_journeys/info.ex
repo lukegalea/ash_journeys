@@ -42,4 +42,8 @@ defmodule AshJourneys.Info do
   @doc "The module's `AshJourneys.World` (its `world:` option)."
   @spec world_module(module()) :: module()
   def world_module(module), do: Spark.Dsl.Extension.get_persisted(module, :world)
+
+  @doc "The module's `Gettext.Backend` (its `gettext:` option), or `nil`."
+  @spec gettext(module()) :: module() | nil
+  def gettext(module), do: Spark.Dsl.Extension.get_persisted(module, :gettext)
 end

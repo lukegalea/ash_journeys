@@ -142,6 +142,25 @@ same declaration on the same build, with every figure unchanged in that sense,
 `approve` keeps it as it is, so re-shooting an unchanged journey changes no committed
 file.
 
+## Documentation pages and translation
+
+Journeys' titles and narration are gettext msgids in a `journeys` domain, and the
+labels `ui/1` interpolates come from the host backend's `a2ui_metadata` and
+`ash_a2ui` domains (pass `gettext: MyAppWeb.Gettext` to `use AshJourneys.Journeys`).
+
+| Task | What it does |
+|---|---|
+| `mix ash_journeys.gettext.extract` | Writes every msgid the journeys say to `priv/gettext/journeys.pot`. With `--check-up-to-date` it writes nothing and fails when the file differs from what extraction would write. |
+| `mix ash_journeys.export` | Writes `docs/journeys/<locale>/<journey>.md` for each journey in each locale it declares, with its figures as `docs/journeys/figures/<digest>.png`. `--out`, and `--figures` with `--figures-ref`, say where. |
+
+`export` reads only `priv/journeys/`: the lock and the approved runs, never a run in
+progress. It refuses the whole export, writing nothing, when a journey is
+unapproved, stale, altered since approval, or names a `ui/1` label its surface no
+longer has. Pages name each figure by the digest the lock records. A capture paints
+masked regions magenta (`AshJourneys.Export.capture_mask_color/0`); published
+figures show them in a neutral grey, and a figure with no masked pixel is the
+approved file byte for byte.
+
 ## Prior art
 
 The ideas come from Specification by Example and Living Documentation (Adzic,

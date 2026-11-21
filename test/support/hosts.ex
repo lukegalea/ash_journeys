@@ -3,7 +3,11 @@ defmodule AshJourneys.Test.Surfaces do
   @behaviour AshJourneys.SurfaceRegistry
 
   @impl true
-  def surface(:people), do: %{ui: AshJourneys.Test.Member}
+  # `:people_ui` moves the surface away from what a declaration was verified
+  # against, as a rename after approval would.
+  def surface(:people),
+    do: %{ui: Application.get_env(:ash_journeys, :people_ui, AshJourneys.Test.Member)}
+
   def surface(:home), do: %{ui: nil}
   def surface(:sign_in), do: %{ui: nil}
   def surface(_id), do: nil

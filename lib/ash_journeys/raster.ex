@@ -232,6 +232,23 @@ defmodule AshJourneys.Raster do
   defp chunk(type, data),
     do: [<<byte_size(data)::32>>, type, data, <<:erlang.crc32([type, data])::32>>]
 
+  @doc """
+  The raster with every opaque pixel of colour `from` painted `to` (both `{r, g, b}`).
+  Used to draw a capture's mask colour as a neutral one on published pages.
+  """
+  @spec recolor(t(), {byte(), byte(), byte()}, {byte(), byte(), byte()}) :: t()
+  def recolor(%__MODULE__{rgba: rgba} = raster, {r, g, b}, {nr, ng, nb}) do
+    painted =
+      for <<pixel::binary-size(4) <- rgba>>, into: <<>> do
+        case pixel do
+          <<^r, ^g, ^b, 255>> -> <<nr, ng, nb, 255>>
+          _other -> pixel
+        end
+      end
+
+    %{raster | rgba: painted}
+  end
+
   @doc "How raster `b` differs from raster `a` (see `t:diff/0`)."
   @spec diff(t(), t()) :: diff()
   def diff(%__MODULE__{width: w, height: h} = a, %__MODULE__{width: w, height: h} = b) do

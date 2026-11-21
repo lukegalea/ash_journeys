@@ -1,0 +1,28 @@
+msgid ""
+msgstr ""
+"Language: fr\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Revoke a leaver's access"
+msgstr "Révoquer l'accès d'une personne qui part"
+
+msgid "Their sign-in stops working."
+msgstr "Sa connexion cesse de fonctionner."
+
+msgid "Their access is revoked."
+msgstr "Son accès est révoqué."
+
+msgid "The person who is leaving is still signed in."
+msgstr "La personne qui part est encore connectée."
+
+msgid "Open %{surface} and find the person who is leaving."
+msgstr "Ouvrez %{surface} et trouvez la personne qui part."
+
+msgid "Choose %{action}."
+msgstr "Choisissez %{action}."
+
+msgid "The next thing they do in the app sends them to sign in."
+msgstr "Sa prochaine action dans l'application la renvoie à la connexion."
+
+msgid "If they try the app again, they are sent to sign in."
+msgstr "Si elle essaie de nouveau l'application, elle est renvoyée à la connexion."
