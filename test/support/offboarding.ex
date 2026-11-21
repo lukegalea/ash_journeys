@@ -4,7 +4,8 @@ defmodule AshJourneys.Test.Offboarding do
   use AshJourneys.Journeys,
     surfaces: AshJourneys.Test.Surfaces,
     personas: AshJourneys.Test.Personas,
-    world: AshJourneys.Test.World
+    world: AshJourneys.Test.World,
+    gettext: AshJourneys.Test.Gettext
 
   journey :revoke_a_leavers_access do
     version 1
