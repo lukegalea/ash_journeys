@@ -25,6 +25,73 @@ recorded.** A run writes candidate figures. `mix ash_journeys.approve` commits
 them with their hashes to a lock file, and `mix ash_journeys.lock --check` fails
 when a declaration is newer than its approved run.
 
+## A journey
+
+```elixir
+defmodule MyApp.Journeys.Offboarding do
+  use AshJourneys.Journeys,
+    surfaces: MyApp.Journeys.Surfaces,   # AshJourneys.SurfaceRegistry
+    personas: MyApp.Journeys.Personas,   # AshJourneys.Persona
+    world: MyApp.Journeys.World          # AshJourneys.World
+
+  journey :revoke_a_leavers_access do
+    version 1
+    kind :how_to
+    title "Revoke a leaver's access"
+    goal "Their sign-in stops working."
+    outcome "Their access is revoked."
+    locales [:en, :fr]
+    metadata controls: ["AC-2"]          # opaque: only the host reads it
+
+    persona :admin, :tenant_admin
+    persona :leaver, :member
+
+    world packs: [:offboarding],
+          bind: [leaver: {:user, :leaver}],
+          clock: ~U[2026-03-02 09:00:00Z],
+          timestamps: [leaver: [created_on: {30, :minute}]]
+
+    step :find_the_person, as: :admin do
+      open :users
+      say "Open %{surface} and find the person who is leaving.", surface: ui(:users)
+
+      figure :people,
+        frame: {:table, "table"},
+        highlight: {:row, :leaver},
+        mask: [{:as_of, width: "6rem"}]
+    end
+
+    step :deactivate, as: :admin do
+      row_action "table.deactivate", on: :leaver, confirm: true
+      figure :confirm, frame: :dialog
+      say "Choose %{action} and confirm.", action: ui({:row_action, "table.deactivate"})
+      note :warning, "The next thing they do in the app sends them to sign in."
+      expect trace: [:handle_event, {:ash_action, :deactivate}], one_correlation: true, audit: true
+      expect record: {:leaver, lifecycle_status: :inactive}
+    end
+  end
+end
+```
+
+The verifiers check, when the module compiles:
+
+- every surface id against the host's surface registry;
+- every row-action and table id against the `AshA2ui.Manifest` of the surface the
+  step's persona is on (ash_a2ui is an optional dependency);
+- every traced Ash action against the resource the row action runs on;
+- that steps name declared personas and bound records, every step has narration,
+  placeholders match their `ui/1` bindings, a `:dialog` frame follows a row action
+  declared `confirm: true`, and every mask has a fixed-width box.
+
+Errors carry the location of the declaration and fail
+`mix compile --warnings-as-errors`. What only a rendered surface can confirm, such
+as whether a row action really asks for confirmation on the catalog a run uses, is
+checked by `AshJourneys.Preflight.check/3` before a run starts.
+
+`AshJourneys.Info.ir/2` gives a journey as JSON data, and `AshJourneys.Info.hash/2`
+the SHA-256 of its RFC 8785 canonical JSON. The same declaration gives the same
+hash however it is spelled; any change gives a different one.
+
 ## Prior art
 
 The ideas come from Specification by Example and Living Documentation (Adzic,
