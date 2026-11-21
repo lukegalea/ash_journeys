@@ -23,6 +23,13 @@ defmodule AshJourneys do
     * `AshJourneys.Info` reads a module's journeys, and `AshJourneys.Ir` turns one
       into JSON data with an RFC 8785 content hash.
     * `AshJourneys.Preflight` is the start-of-run check a runner makes first.
+    * `AshJourneys.Manifest` is what a run records, and `AshJourneys.Run` where it
+      writes it. `AshJourneys.Approval` publishes a passing run to
+      `priv/journeys/`, `AshJourneys.Lock` records which run proves each journey,
+      `AshJourneys.Impact` shows what approving a run would change, and
+      `AshJourneys.Raster` compares figures by their pixels. The tasks are
+      `mix ash_journeys.approve`, `mix ash_journeys.lock` and
+      `mix ash_journeys.impact`.
     * `AshJourneys.SurfaceRegistry`, `AshJourneys.Persona`, `AshJourneys.World`,
       `AshJourneys.EvidenceSink` and `AshJourneys.FigureStore` are what a host
       implements.
