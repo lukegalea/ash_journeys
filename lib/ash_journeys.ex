@@ -18,6 +18,15 @@ defmodule AshJourneys do
   This package holds the declaration, its verification and the read projections.
   It has no browser dependency and is safe to ship in a release.
 
-  Early: the DSL lands in the next release. See `README.md`.
+    * `AshJourneys.Journeys` declares journeys and `AshJourneys.Dsl` describes the
+      DSL; its verifiers check every reference when the module compiles.
+    * `AshJourneys.Info` reads a module's journeys, and `AshJourneys.Ir` turns one
+      into JSON data with an RFC 8785 content hash.
+    * `AshJourneys.Preflight` is the start-of-run check a runner makes first.
+    * `AshJourneys.SurfaceRegistry`, `AshJourneys.Persona`, `AshJourneys.World`,
+      `AshJourneys.EvidenceSink` and `AshJourneys.FigureStore` are what a host
+      implements.
+
+  Early: the API will change. See `README.md`.
   """
 end
