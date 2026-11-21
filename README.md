@@ -92,6 +92,56 @@ checked by `AshJourneys.Preflight.check/3` before a run starts.
 the SHA-256 of its RFC 8785 canonical JSON. The same declaration gives the same
 hash however it is spelled; any change gives a different one.
 
+## Runs, approval and the lock
+
+A runner (`ash_browser_tests`) walks a journey and writes a candidate for each
+journey and locale under `tmp/journeys/runs/<run-id>/<journey>/<locale>/`: the
+figures, and a run manifest (`AshJourneys.Manifest`). The manifest records the
+commit, the journey's version and declaration hash, the locale, the environment
+class (`:test`, `:staging` or `:operated`), the browser's name, version and
+executable, the framing profile and the retries. For each step it records the
+status, the persona it ran as, its attempts, its span cursor window, its
+correlation id and span ids, and each figure's file hash, raster hash, settled
+state and highlight box.
+
+Name the modules that declare journeys:
+
+```elixir
+config :ash_journeys, journeys: [MyApp.Journeys.Offboarding]
+```
+
+Then:
+
+| Task | What it does |
+|---|---|
+| `mix ash_journeys.impact <run-id>` | Says whether the run is approvable, with every reason it is not, and how each figure compares with the approved one. Writes each changed figure beside its approved version, with the differing pixels marked, to `tmp/journeys/impact/<run-id>/`. |
+| `mix ash_journeys.approve <run-id>` | Copies the run's manifests and figures, byte for byte, to `priv/journeys/<locale>/<journey>/` and records their hashes in `priv/journeys/journeys.lock.json`. |
+| `mix ash_journeys.lock --check` | Fails when a journey's declaration hash differs from its approved run, and for nothing else. Without `--check` it only reports. |
+
+`approve` refuses the whole run, and writes nothing, when any part of it is not
+approvable:
+
+- a manifest is missing or does not read;
+- the run failed or errored, or any step needed a retry: only a pass on the first
+  attempt counts;
+- a declared step was not recorded, did not pass, ran as another persona, or was
+  not measured (no cursor window, or a trace expected and none recorded);
+- a declared figure was not captured, was captured before the page settled, has no
+  raster hash, or has a file whose bytes or pixels do not match its manifest;
+- the run is of another declaration than the current one;
+- the run is from a browser build other than the one the lock pins. The first
+  approval pins the build it ran on; moving the pin is an edit to the lock.
+
+Figures are compared by their raster: the decoded pixels as 8-bit RGBA, hashed with
+their width and height (`AshJourneys.Raster`). A browser update can change a PNG's
+bytes without changing its pixels. Within the lock's tolerance (at first at most 32
+pixels, none off by more than 64 in any channel), a differing raster counts as
+unchanged. The tolerance only decides whether a figure changed for review. Every hash
+the lock and the manifests record is exact. When an approved run already proves the
+same declaration on the same build, with every figure unchanged in that sense,
+`approve` keeps it as it is, so re-shooting an unchanged journey changes no committed
+file.
+
 ## Prior art
 
 The ideas come from Specification by Example and Living Documentation (Adzic,

@@ -12,3 +12,7 @@
 - Pin displayed seed timestamps with `world clock:` and `timestamps:`. Mask only what cannot be pinned (request-time labels), and give every mask a fixed width: `{:as_of, width: "6rem"}`.
 - `metadata` is opaque to this package. Put control ids and other host data there; nothing here reads it.
 - A changed declaration has a new IR hash (`AshJourneys.Info.hash/2`), so its approved runs no longer prove it.
+- Approve figures only with `mix ash_journeys.approve <run-id>`, after reviewing `mix ash_journeys.impact <run-id>`. Never copy files into `priv/journeys/` or edit `journeys.lock.json` by hand, except to move the pinned browser build or the tolerance on purpose.
+- A runner records every step it declares, in order, with its real status and attempts, and leaves unmeasured values `nil`. It never fills in a value it did not measure: `approve` refuses unmeasured steps and figures.
+- Record `raster_sha256` with `AshJourneys.Raster.hash/1` over the decoded figure, so the runner and `approve` agree on what a raster hash is.
+- Put `mix ash_journeys.lock --check` in the static checks. It fails only when a declaration is newer than its approved run.
