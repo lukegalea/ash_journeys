@@ -38,8 +38,10 @@ defmodule AshJourneys.Lock do
       long-lived page can show. It decides only whether a figure changed for
       review. Every hash the lock records is exact.
 
-  `check/2` is the static gate: a journey whose declaration hash differs from its
-  approved run is stale, and nothing else fails it.
+  `check/4` is the static gate, and `verify/6` the check behind it and behind every
+  projection: a journey's approved run proves it only while the run's manifest
+  proves the current declaration on the pinned build, its files are the ones the
+  lock hashed, and its text still resolves as the run recorded it.
   """
 
   alias AshJourneys.{Info, Ir, Json}
@@ -136,26 +138,36 @@ defmodule AshJourneys.Lock do
   end
 
   @typedoc """
-  The gate's verdict per declared journey and locale. `stale` fails the gate;
-  `unapproved` (no approved run yet) and `orphaned` (a lock entry no journey
-  declares any more) are reported and pass.
+  The gate's verdict per declared journey and locale (`check/4`). `stale`,
+  `altered` and `drifted` fail the gate, each with its reasons; `unapproved` (no
+  approved run yet) and `orphaned` (a lock entry no journey declares any more)
+  are reported and pass.
   """
   @type status :: %{
           current: [{String.t(), String.t()}],
-          stale: [{String.t(), String.t(), String.t(), String.t()}],
+          stale: [{String.t(), String.t(), [String.t()]}],
+          altered: [{String.t(), String.t(), [String.t()]}],
+          drifted: [{String.t(), String.t(), [String.t()]}],
           unapproved: [{String.t(), String.t()}],
           orphaned: [{String.t(), String.t()}]
         }
 
-  @doc "Compares the declared journeys with the runs the lock names."
-  @spec check(t(), declared()) :: status()
-  def check(%__MODULE__{journeys: locked}, declared) do
+  @typedoc "Why `verify/6` refused an approved run."
+  @type refusal :: :unapproved | :stale | :altered | :drifted
+
+  @doc """
+  Compares the declared journeys with the approved runs the lock names, under the
+  project root `root`, by `verify/6` for each journey and locale. `opts` are
+  `verify/6`'s.
+  """
+  @spec check(Path.t(), t(), declared(), keyword()) :: status()
+  def check(root, %__MODULE__{journeys: locked} = lock, declared, opts \\ []) do
     statuses =
-      for {id, %{ir: ir, hash: hash}} <- Enum.sort(declared), locale <- ir["locales"] do
-        case get_in(locked, [id, locale]) do
-          nil -> {:unapproved, {id, locale}}
-          %{hash: ^hash} -> {:current, {id, locale}}
-          %{hash: approved} -> {:stale, {id, locale, approved, hash}}
+      for {id, %{ir: ir} = journey} <- Enum.sort(declared), locale <- ir["locales"] do
+        case verify(root, lock, id, journey, locale, opts) do
+          {:ok, _entry, _manifest} -> {:current, {id, locale}}
+          {:error, :unapproved, _reasons} -> {:unapproved, {id, locale}}
+          {:error, refusal, reasons} -> {refusal, {id, locale, reasons}}
         end
       end
 
@@ -166,10 +178,161 @@ defmodule AshJourneys.Lock do
           do: {id, locale}
 
     Map.merge(
-      %{current: [], stale: [], unapproved: [], orphaned: orphaned},
+      %{current: [], stale: [], altered: [], drifted: [], unapproved: [], orphaned: orphaned},
       Enum.group_by(statuses, &elem(&1, 0), &elem(&1, 1))
     )
   end
+
+  @doc """
+  Whether the approved run the lock names for journey `id` (`journey`, its
+  `declared/1` entry) in `locale` still proves it, under the project root `root`.
+  This is the one gate every projection passes through: the lock check, the
+  exported pages and a host's in-app guide.
+
+  The approved run is the manifest in `approved_dir/3`, not the lock entry: the
+  entry only says which file it is. A run is refused as
+
+    * `:unapproved` when the lock names none;
+    * `:stale` when the declaration's hash is not the one approved, or the run is
+      from another browser build than the one the lock pins (after the pin moves,
+      every journey needs a run on the new build);
+    * `:altered` when an approved file is missing or is not the one the lock
+      hashed, the entry disagrees with its manifest (run, commit, version,
+      declaration, locale, environment, build or figures), or the manifest no
+      longer passes approval's checks (`AshJourneys.Approval.manifest_problems/5`):
+      a hand edit to the lock cannot make another run current;
+    * `:drifted` when the journey's text no longer resolves to what the run
+      recorded (`AshJourneys.Approval.texts_problems/3`), for example after a
+      label or a translation changed. `texts: false` leaves this check out;
+      `:manifest_opts` are the `AshA2ui.Manifest` options the surfaces render with.
+
+  The reasons do not name the journey or locale.
+  """
+  @spec verify(Path.t(), t(), String.t(), map(), String.t(), keyword()) ::
+          {:ok, entry(), AshJourneys.Manifest.t()} | {:error, refusal(), [String.t()]}
+  def verify(root, %__MODULE__{} = lock, id, %{hash: hash} = journey, locale, opts \\ []) do
+    dir = approved_dir(root, locale, id)
+
+    with {:ok, entry} <- entry(lock, id, locale),
+         :ok <- current(entry, hash, lock),
+         {:ok, manifest} <- approved_manifest(dir, entry),
+         :ok <- consistent(entry, manifest, id, locale),
+         :ok <- still_approvable(manifest, dir, id, journey, lock),
+         :ok <- texts(manifest, journey, opts) do
+      {:ok, entry, manifest}
+    end
+  end
+
+  defp entry(lock, id, locale) do
+    case get_in(lock.journeys, [id, locale]) do
+      nil -> {:error, :unapproved, ["no run is approved; run it, then mix ash_journeys.approve"]}
+      entry -> {:ok, entry}
+    end
+  end
+
+  defp current(%{hash: approved}, hash, _lock) when approved != hash,
+    do:
+      {:error, :stale,
+       ["stale; the approved run proves #{short(approved)}, the declaration is #{short(hash)}"]}
+
+  defp current(%{browser: build}, _hash, %{browser: pinned}) when build != pinned,
+    do:
+      {:error, :stale,
+       [
+         "stale; the approved run is from #{describe(build)}, but the lock pins #{describe(pinned)}; " <>
+           "run it on the pinned build and approve it again"
+       ]}
+
+  defp current(_entry, _hash, _lock), do: :ok
+
+  defp approved_manifest(dir, entry) do
+    files =
+      [{AshJourneys.Manifest.file_name(), entry.manifest_sha256}] ++
+        for {_key, figure} <- Enum.sort(entry.figures), do: {figure.file, figure.file_sha256}
+
+    with [] <- Enum.flat_map(files, fn {file, digest} -> altered(dir, file, digest) end),
+         {:ok, manifest} <-
+           AshJourneys.Manifest.read(Path.join(dir, AshJourneys.Manifest.file_name())) do
+      {:ok, manifest}
+    else
+      {:error, problems} -> {:error, :altered, problems}
+      problems -> {:error, :altered, problems}
+    end
+  end
+
+  defp altered(dir, file, digest) do
+    case File.read(Path.join(dir, file)) do
+      {:ok, bytes} ->
+        if Json.sha256(bytes) == digest,
+          do: [],
+          else: ["#{file} is not the file the lock approved"]
+
+      {:error, _} ->
+        ["#{file} is missing from #{dir}"]
+    end
+  end
+
+  defp consistent(entry, manifest, id, locale) do
+    figures =
+      for %{figures: figures} = step <- manifest.steps,
+          figure <- figures,
+          into: %{},
+          do:
+            {AshJourneys.Manifest.figure_key(step, figure),
+             Map.take(figure, [:file, :file_sha256, :raster_sha256, :width, :height])}
+
+    pairs = [
+      {"journey", id, manifest.journey},
+      {"locale", locale, manifest.locale},
+      {"run", entry.run, manifest.run_id},
+      {"commit", entry.commit, manifest.commit},
+      {"version", entry.version, manifest.version},
+      {"hash", entry.hash, manifest.declaration_hash},
+      {"environment", entry.environment, manifest.environment},
+      {"browser", entry.browser, Map.take(manifest.browser, [:name, :version])},
+      {"figures", entry.figures, figures}
+    ]
+
+    case for {what, locked, recorded} <- pairs, locked != recorded, do: {what, locked, recorded} do
+      [] ->
+        :ok
+
+      mismatches ->
+        {:error, :altered,
+         Enum.map(mismatches, fn {what, locked, recorded} ->
+           "the lock records #{what} #{inspect(locked)}, but its approved manifest has #{inspect(recorded)}"
+         end)}
+    end
+  end
+
+  defp still_approvable(manifest, dir, id, journey, lock) do
+    case AshJourneys.Approval.manifest_problems(manifest, dir, %{id => journey}, lock,
+           texts: false
+         ) do
+      [] -> :ok
+      problems -> {:error, :altered, Enum.map(problems, &("the approved run " <> &1))}
+    end
+  end
+
+  defp texts(manifest, journey, opts) do
+    if Keyword.get(opts, :texts, true) do
+      case AshJourneys.Approval.texts_problems(
+             manifest,
+             journey,
+             Keyword.get(opts, :manifest_opts, [])
+           ) do
+        [] -> :ok
+        problems -> {:error, :drifted, problems}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp describe(%{name: name, version: version}), do: "#{name} #{version}"
+  defp describe(nil), do: "no build"
+
+  defp short(hash), do: binary_part(hash, 0, min(12, byte_size(hash)))
 
   @doc "Reads the lock under `root`. A missing file is an empty lock."
   @spec read(Path.t()) :: {:ok, t()} | {:error, [String.t()]}

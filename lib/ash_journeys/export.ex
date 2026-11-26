@@ -9,11 +9,15 @@ defmodule AshJourneys.Export do
   nothing, when any declared journey in any locale it declares is
 
     * **unapproved**: the lock names no run for it;
-    * **stale**: its declaration hash differs from the approved run's;
-    * **altered**: an approved file differs from the hash the lock records, or the
-      approved run does not hold the figures the declaration has;
-    * **drifted**: a `ui/1` reference no longer resolves on its surface, or a
-      translation names a placeholder the journey does not bind.
+    * **stale**: its declaration hash differs from the approved run's, or the run
+      is from another build than the one the lock pins;
+    * **altered**: an approved file differs from the hash the lock records, the
+      lock entry disagrees with the approved manifest, or that manifest no longer
+      passes approval's checks;
+    * **drifted**: its text, or a `ui/1` label, no longer resolves to what the run
+      recorded, or no longer resolves at all.
+
+  These are `AshJourneys.Lock.verify/6`'s refusals.
 
   ## A page
 
@@ -34,7 +38,7 @@ defmodule AshJourneys.Export do
   is the approved file's bytes.
   """
 
-  alias AshJourneys.{Info, Json, L10n, Lock, Manifest, Raster}
+  alias AshJourneys.{Info, L10n, Lock, Manifest, Raster}
 
   @capture_mask {255, 0, 255}
   @neutral {209, 213, 219}
@@ -103,63 +107,19 @@ defmodule AshJourneys.Export do
   end
 
   defp page(root, lock, id, journey, locale, opts) do
-    with {:ok, entry} <- approved(root, lock, id, journey, locale),
+    with {:ok, entry} <- approved(root, lock, id, journey, locale, opts),
          {:ok, figures} <- published_figures(root, id, locale, entry),
          {:ok, markdown} <- markdown(journey, locale, entry, opts) do
       {:ok, %{page: %{path: "#{locale}/#{id}.md", markdown: markdown}, figures: figures}}
     end
   end
 
-  # The lock's run for this journey and locale, when it proves this declaration and
-  # its files are the ones the lock hashed.
-  defp approved(root, lock, id, %{ir: ir, hash: hash}, locale) do
-    where = "#{id} (#{locale})"
-
-    case get_in(lock.journeys, [id, locale]) do
-      nil ->
-        {:error, ["#{where}: no run is approved; run it, then mix ash_journeys.approve"]}
-
-      %{hash: approved} when approved != hash ->
-        {:error,
-         [
-           "#{where}: stale; the approved run proves #{short(approved)}, the declaration is #{short(hash)}"
-         ]}
-
-      entry ->
-        dir = Lock.approved_dir(root, locale, id)
-
-        declared =
-          for step <- ir["steps"],
-              %{"type" => "figure"} = figure <- step["body"],
-              do: Manifest.figure_key(step["name"], figure["name"])
-
-        missing = declared -- Map.keys(entry.figures)
-        extra = Map.keys(entry.figures) -- declared
-
-        problems =
-          Enum.map(missing, &"#{where}: the approved run has no figure #{&1}") ++
-            Enum.map(
-              extra,
-              &"#{where}: the approved run has a figure #{&1} the declaration does not"
-            ) ++
-            altered(dir, Manifest.file_name(), entry.manifest_sha256, where) ++
-            Enum.flat_map(entry.figures, fn {_key, figure} ->
-              altered(dir, figure.file, figure.file_sha256, where)
-            end)
-
-        if problems == [], do: {:ok, entry}, else: {:error, problems}
-    end
-  end
-
-  defp altered(dir, file, digest, where) do
-    case File.read(Path.join(dir, file)) do
-      {:ok, bytes} ->
-        if Json.sha256(bytes) == digest,
-          do: [],
-          else: ["#{where}: #{file} is not the file the lock approved"]
-
-      {:error, _} ->
-        ["#{where}: #{file} is missing from #{dir}"]
+  # The lock's run for this journey and locale, when it still proves it
+  # (`AshJourneys.Lock.verify/6`).
+  defp approved(root, lock, id, journey, locale, opts) do
+    case Lock.verify(root, lock, id, journey, locale, Keyword.take(opts, [:manifest_opts])) do
+      {:ok, entry, _manifest} -> {:ok, entry}
+      {:error, _refusal, reasons} -> {:error, Enum.map(reasons, &"#{id} (#{locale}): #{&1}")}
     end
   end
 
@@ -296,6 +256,4 @@ defmodule AshJourneys.Export do
       problems -> {:error, problems}
     end
   end
-
-  defp short(hash), do: binary_part(hash, 0, 12)
 end

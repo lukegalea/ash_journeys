@@ -20,6 +20,10 @@ defmodule AshJourneys.Manifest do
     * `framing`: the profile the browser contexts used (viewport, scale, motion,
       colour scheme, time zone), as JSON data with string keys.
     * `retries`: how many retries the run needed in all. Only `0` is a pass.
+    * `texts`: every text a page of the run shows, as the run resolved it in its
+      locale (`AshJourneys.L10n.texts/3`): the title, goal, outcome and narration
+      as translated, and each `ui/1` label as the surface rendered it. A
+      projection shows a journey's text only while it still resolves to these.
     * `status`: `:passed`, `:failed` or `:errored`.
     * `steps`: one `AshJourneys.Manifest.Step` per declared step, in order.
 
@@ -35,7 +39,7 @@ defmodule AshJourneys.Manifest do
   alias AshJourneys.Json
   alias AshJourneys.Manifest.{Figure, Step}
 
-  @format 1
+  @format 2
   @file_name "manifest.json"
   @environments [:test, :staging, :operated]
   @statuses [:passed, :failed, :errored]
@@ -53,6 +57,7 @@ defmodule AshJourneys.Manifest do
     format: @format,
     framing: %{},
     retries: 0,
+    texts: %{},
     steps: []
   ]
 
@@ -72,6 +77,7 @@ defmodule AshJourneys.Manifest do
           browser: browser(),
           framing: map(),
           retries: non_neg_integer(),
+          texts: %{String.t() => String.t()},
           status: status(),
           steps: [Step.t()]
         }
@@ -103,6 +109,7 @@ defmodule AshJourneys.Manifest do
       "browser" => stringify(manifest.browser),
       "framing" => stringify(manifest.framing),
       "retries" => manifest.retries,
+      "texts" => manifest.texts,
       "status" => string(manifest.status),
       "steps" => Enum.map(manifest.steps, &step_json/1)
     }
@@ -178,7 +185,7 @@ defmodule AshJourneys.Manifest do
   end
 
   @known ~w(format run_id commit journey version declaration_hash locale environment browser
-            framing retries status steps)
+            framing retries texts status steps)
 
   @doc "Checks JSON data and builds the manifest it describes."
   @spec from_json(term()) :: {:ok, t()} | {:error, [String.t()]}
@@ -206,6 +213,7 @@ defmodule AshJourneys.Manifest do
       framing:
         Json.field(map, "framing", path, Json.object(fn framing, _path -> {framing, []} end)),
       retries: Json.field(map, "retries", path, Json.integer(0)),
+      texts: Json.field(map, "texts", path, Json.object(&texts/2)),
       status: Json.field(map, "status", path, Json.enum(@statuses)),
       steps: Json.field(map, "steps", path, Json.list(Json.object(&step/2)))
     ]
@@ -227,6 +235,15 @@ defmodule AshJourneys.Manifest do
   end
 
   defp figures_outside_a_seeded_world(_manifest), do: []
+
+  defp texts(map, path) do
+    problems =
+      for {key, value} <- Enum.sort(map),
+          not is_binary(value),
+          do: "#{path}.#{key}: expected a string, got #{inspect(value)}"
+
+    {if(problems == [], do: map), problems}
+  end
 
   defp browser(map, path) do
     record(map, path, %{}, ~w(name version executable),

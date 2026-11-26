@@ -23,7 +23,8 @@ The compiled journey is the one source for several outputs:
 **A projection may show only what a passing run of the same journey version
 recorded.** A run writes candidate figures. `mix ash_journeys.approve` commits
 them with their hashes to a lock file, and `mix ash_journeys.lock --check` fails
-when a declaration is newer than its approved run.
+when a journey is newer than its approved run: its declaration, the browser build
+the lock pins, or the text and labels it resolves to.
 
 ## A journey
 
@@ -99,7 +100,10 @@ journey and locale under `tmp/journeys/runs/<run-id>/<journey>/<locale>/`: the
 figures, and a run manifest (`AshJourneys.Manifest`). The manifest records the
 commit, the journey's version and declaration hash, the locale, the environment
 class (`:test`, `:staging` or `:operated`), the browser's name, version and
-executable, the framing profile and the retries. For each step it records the
+executable, the framing profile, the retries, and every text the journey's pages
+show as the run resolved it in its locale (`AshJourneys.L10n.texts/3`): the
+translated title, goal, outcome and narration, and each `ui/1` label. For each
+step it records the
 status, the persona it ran as, its attempts, its span cursor window, its
 correlation id and span ids, and each figure's file hash, raster hash, settled
 state and highlight box.
@@ -116,7 +120,7 @@ Then:
 |---|---|
 | `mix ash_journeys.impact <run-id>` | Says whether the run is approvable, with every reason it is not, and how each figure compares with the approved one. Writes each changed figure beside its approved version, with the differing pixels marked, to `tmp/journeys/impact/<run-id>/`. |
 | `mix ash_journeys.approve <run-id>` | Copies the run's manifests and figures, byte for byte, to `priv/journeys/<locale>/<journey>/` and records their hashes in `priv/journeys/journeys.lock.json`. |
-| `mix ash_journeys.lock --check` | Fails when a journey's declaration hash differs from its approved run, and for nothing else. Without `--check` it only reports. |
+| `mix ash_journeys.lock --check` | Fails when a journey's approved run no longer proves it (`AshJourneys.Lock.verify/6`): the declaration changed, the lock pins another build, an approved file or the lock entry is not what approval wrote, or a text or label resolves differently than the run recorded. An unapproved journey is reported and passes. Without `--check` it only reports. |
 
 `approve` refuses the whole run, and writes nothing, when any part of it is not
 approvable:
@@ -129,6 +133,8 @@ approvable:
 - a declared figure was not captured, was captured before the page settled, has no
   raster hash, or has a file whose bytes or pixels do not match its manifest;
 - the run is of another declaration than the current one;
+- a text it recorded is not what the journey resolves to now, so no page would
+  name a label its figures do not show;
 - the run is from a browser build other than the one the lock pins. The first
   approval pins the build it ran on; moving the pin is an edit to the lock.
 
@@ -155,8 +161,10 @@ labels `ui/1` interpolates come from the host backend's `a2ui_metadata` and
 
 `export` reads only `priv/journeys/`: the lock and the approved runs, never a run in
 progress. It refuses the whole export, writing nothing, when a journey is
-unapproved, stale, altered since approval, or names a `ui/1` label its surface no
-longer has. Pages name each figure by the digest the lock records. A capture paints
+unapproved, stale, altered since approval, or drifted: a label or translation
+resolves differently than the approved run recorded, or no longer resolves. A
+renamed button or a changed translation therefore needs a new run, approved,
+before any page says it. Pages name each figure by the digest the lock records. A capture paints
 masked regions magenta (`AshJourneys.Export.capture_mask_color/0`); published
 figures show them in a neutral grey, and a figure with no masked pixel is the
 approved file byte for byte.

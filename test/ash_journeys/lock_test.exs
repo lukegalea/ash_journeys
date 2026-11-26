@@ -17,16 +17,18 @@ defmodule AshJourneys.LockTest do
     lock
   end
 
-  describe "check/2" do
+  describe "check/3" do
     test "an approved run of the current declaration is current; the rest is unapproved", %{
       root: root,
       declared: declared
     } do
-      status = Lock.check(approved(root, declared), declared)
+      status = Lock.check(root, approved(root, declared), declared)
 
       assert status.current == [{@journey, "en"}]
       assert status.unapproved == [{"remove_a_person", "en"}, {@journey, "fr"}]
       assert status.stale == []
+      assert status.altered == []
+      assert status.drifted == []
       assert status.orphaned == []
     end
 
@@ -35,31 +37,90 @@ defmodule AshJourneys.LockTest do
       declared: declared
     } do
       lock = approved(root, declared)
-      approved_hash = declared[@journey].hash
       changed = put_in(declared, [@journey, :hash], String.duplicate("a", 64))
 
-      assert %{stale: [{@journey, "en", ^approved_hash, "aaaa" <> _}], current: []} =
-               Lock.check(lock, changed)
+      assert %{stale: [{@journey, "en", [reason]}], current: []} =
+               Lock.check(root, lock, changed)
+
+      assert reason =~ "the declaration is aaaaaaaaaaaa"
     end
 
-    test "nothing but a changed declaration is stale", %{root: root, declared: declared} do
+    test "editing the lock's hash to the new declaration does not make the old run current", %{
+      root: root,
+      declared: declared
+    } do
+      lock = approved(root, declared)
+      new_hash = String.duplicate("a", 64)
+      changed = put_in(declared, [@journey, :hash], new_hash)
+      edited = put_in(lock.journeys[@journey]["en"].hash, new_hash)
+
+      assert %{altered: [{@journey, "en", reasons}], current: []} =
+               Lock.check(root, edited, changed)
+
+      assert [reason] = reasons
+      assert reason =~ ~s(the lock records hash "aaaa)
+      assert reason =~ ~s(but its approved manifest has "#{declared[@journey].hash}")
+    end
+
+    test "a run from another build than the lock pins is stale", %{
+      root: root,
+      declared: declared
+    } do
+      lock = approved(root, declared)
+      moved = %{lock | browser: %{name: "chromium", version: "999.0.0.0"}}
+
+      assert %{stale: [{@journey, "en", [reason]}], current: []} =
+               Lock.check(root, moved, declared)
+
+      assert reason =~ "the lock pins chromium 999.0.0.0"
+    end
+
+    test "approved files that are gone or not the ones hashed are altered", %{
+      root: root,
+      declared: declared
+    } do
+      lock = approved(root, declared)
+      dir = Lock.approved_dir(root, "en", @journey)
+      File.write!(Path.join(dir, "find_the_person.people.png"), "not the figure")
+
+      assert %{altered: [{@journey, "en", [reason]}]} = Lock.check(root, lock, declared)
+      assert reason == "find_the_person.people.png is not the file the lock approved"
+
+      File.rm_rf!(dir)
+      assert %{altered: [{@journey, "en", reasons}]} = Lock.check(root, lock, declared)
+      assert Enum.all?(reasons, &(&1 =~ "is missing from"))
+    end
+
+    test "a lock entry whose figures are not its manifest's is altered", %{
+      root: root,
+      declared: declared
+    } do
       lock = approved(root, declared)
 
-      # Another tolerance, another pinned build, figures deleted from priv, an entry
-      # for a journey no longer declared: reported, never stale.
-      lock = %{
-        lock
-        | tolerance: %{pixels: 0, channel_delta: 0},
-          browser: %{name: "chromium", version: "999"},
-          journeys: Map.put(lock.journeys, "gone", lock.journeys[@journey])
-      }
+      edited =
+        update_in(lock.journeys[@journey]["en"].figures["find_the_person.people"], fn figure ->
+          %{figure | raster_sha256: String.duplicate("c", 64)}
+        end)
 
-      File.rm_rf!(Lock.approved_dir(root, "en", @journey))
-      status = Lock.check(lock, declared)
+      assert %{altered: [{@journey, "en", [reason]}]} = Lock.check(root, edited, declared)
+      assert reason =~ "the lock records figures"
+    end
 
-      assert status.stale == []
-      assert status.orphaned == [{"gone", "en"}]
-      assert status.current == [{@journey, "en"}]
+    test "an approved manifest that would no longer be approved is altered", %{
+      root: root,
+      declared: declared
+    } do
+      # A retried run, approved by a hand edit: the manifest and the lock agree, and
+      # the lock hashes the manifest, but approval would refuse it.
+      lock = approved(root, declared)
+      dir = Lock.approved_dir(root, "en", @journey)
+      path = Path.join(dir, "manifest.json")
+      {:ok, manifest} = AshJourneys.Manifest.read(path)
+      AshJourneys.Manifest.write!(%{manifest | retries: 1}, dir)
+      edited = put_in(lock.journeys[@journey]["en"].manifest_sha256, sha256(path))
+
+      assert %{altered: [{@journey, "en", [reason]}]} = Lock.check(root, edited, declared)
+      assert reason =~ "the approved run the run needed 1 retry"
     end
 
     test "an entry for a locale the journey no longer declares is orphaned", %{
@@ -70,9 +131,11 @@ defmodule AshJourneys.LockTest do
       fewer = put_in(declared, [@journey, :ir, "locales"], ["fr"])
 
       assert %{orphaned: [{@journey, "en"}], stale: [], unapproved: [{@journey, "fr"}]} =
-               Lock.check(lock, Map.take(fewer, [@journey]))
+               Lock.check(root, lock, Map.take(fewer, [@journey]))
     end
   end
+
+  defp sha256(path), do: AshJourneys.Json.sha256(File.read!(path))
 
   describe "read/1" do
     test "a missing lock is empty, with the default tolerance", %{root: root} do

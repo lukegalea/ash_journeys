@@ -53,8 +53,8 @@ defmodule AshJourneys.ManifestTest do
     end
 
     test "another format", %{json: json} do
-      assert {:error, ["manifest.format: expected 1, got 2"]} =
-               Manifest.from_json(%{json | "format" => 2})
+      assert {:error, ["manifest.format: expected 2, got 1"]} =
+               Manifest.from_json(%{json | "format" => 1})
 
       assert {:error, ["manifest.format: missing"]} =
                Manifest.from_json(Map.delete(json, "format"))
