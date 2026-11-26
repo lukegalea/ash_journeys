@@ -56,7 +56,18 @@ defmodule AshJourneys.Run do
   """
   @spec load(Path.t(), String.t()) :: {:ok, [candidate()]} | {:error, [String.t()]}
   def load(root, run_id) do
-    dir = dir(root, run_id)
+    if name?(run_id),
+      do: load_dir(dir(root, run_id)),
+      else: {:error, ["#{inspect(run_id)} is not a run id"]}
+  end
+
+  @doc """
+  `load/2` for a run directory given by its path; the run id is the directory's name.
+  """
+  @spec load_dir(Path.t()) :: {:ok, [candidate()]} | {:error, [String.t()]}
+  def load_dir(dir) do
+    dir = Path.expand(dir)
+    run_id = Path.basename(dir)
 
     cond do
       not name?(run_id) -> {:error, ["#{inspect(run_id)} is not a run id"]}
