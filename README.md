@@ -169,6 +169,25 @@ masked regions magenta (`AshJourneys.Export.capture_mask_color/0`); published
 figures show them in a neutral grey, and a figure with no masked pixel is the
 approved file byte for byte.
 
+## Cucumber Messages
+
+`mix ash_journeys.export.messages tmp/journeys/runs/<run-id>` writes one run as a
+[Cucumber Messages](https://github.com/cucumber/messages) NDJSON stream (to standard
+output, or to `--out FILE`), so report tooling that reads that protocol can read it.
+Figures are attachments by sha256 and media type, referenced by their `file:` URL
+unless `--embed` carries the bytes. It is a projection of the run's manifests and
+reads nothing else:
+
+- a step is `PASSED` only when it passed on its first attempt and everything it
+  recorded was measured; a retried, errored or unmeasured step is `UNKNOWN`, and says why;
+- `testRunFinished.success` is true only when every manifest passed with no retry and
+  every step is `PASSED`;
+- a manifest records no clock, so timestamps are the epoch and durations zero;
+- a missing, malformed or misfiled manifest exports nothing and fails the task.
+
+Every message is validated in tests against the published JSON schema, vendored at
+`test/fixtures/cucumber_messages/` with its version and licence (MIT).
+
 ## Prior art
 
 The ideas come from Specification by Example and Living Documentation (Adzic,

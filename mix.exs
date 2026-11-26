@@ -34,6 +34,7 @@ defmodule AshJourneys.MixProject do
       {:jcs, "~> 0.2"},
       {:ash_a2ui, github: "lukegalea/ash_a2ui", optional: true},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false},
+      {:jsv, "~> 0.26", only: :test, runtime: false},
       {:sourceror, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
