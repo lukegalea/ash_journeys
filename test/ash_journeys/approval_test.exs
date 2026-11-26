@@ -406,7 +406,7 @@ defmodule AshJourneys.ApprovalTest do
 
     test "a malformed manifest", %{root: root, declared: declared} do
       dir = Runs.write!(root, declared, "r1", @journey, "en")
-      File.write!(Path.join(dir, "manifest.json"), ~s({"format": 1, "status": "passed"}))
+      File.write!(Path.join(dir, "manifest.json"), ~s({"format": 2, "status": "passed"}))
       problems = refused(root, declared, "r1")
       assert "#{@journey}/en: manifest.steps: missing" in problems
 

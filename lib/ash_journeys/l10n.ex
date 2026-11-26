@@ -13,9 +13,15 @@ defmodule AshJourneys.L10n do
   locale, through `AshA2ui.Manifest.for_surface/2` with the host backend's
   `ash_a2ui` and `a2ui_metadata` domains, so a renamed or translated button reaches
   every page without touching a journey.
+
+  `texts/3` is all of a journey's text in one locale, resolved. A run records it
+  (`AshJourneys.Manifest`), and a projection shows the text only while it still
+  resolves the same (`AshJourneys.Lock.verify/6`): a renamed button or a changed
+  translation needs a new run before any page says it, since the approved figures
+  show what the run saw.
   """
 
-  alias AshJourneys.SurfaceLookup
+  alias AshJourneys.{Info, SurfaceLookup}
 
   @domain "journeys"
 
@@ -149,5 +155,84 @@ defmodule AshJourneys.L10n do
     {:ok, String.to_existing_atom(surface)}
   rescue
     ArgumentError -> {:error, "#{inspect(surface)} is not a surface"}
+  end
+
+  @doc """
+  Every text of journey `journey` (`%{module:, ir:}`, as in
+  `AshJourneys.Lock.declared/1`) in `locale`, resolved: `"title"`, `"goal"` and
+  `"outcome"`; `"<step>.narration.<n>"` for each `say` and `note` (counted from
+  1, a `say` with its `ui/1` labels filled in as plain text); and
+  `"<step>.ui.<name>"` for each `ui/1` label. `manifest_opts` are the
+  `AshA2ui.Manifest` options the surfaces render with (`label/5`). Every
+  reference that does not resolve is an error.
+  """
+  @spec texts(%{module: module(), ir: map()}, String.t(), keyword()) ::
+          {:ok, %{String.t() => String.t()}} | {:error, [String.t()]}
+  def texts(%{module: module, ir: ir}, locale, manifest_opts \\ []) do
+    backend = Info.gettext(module)
+    registry = Info.surface_registry(module)
+
+    header =
+      for key <- ~w(title goal outcome),
+          ir[key] != nil,
+          do: {key, fn -> text(backend, ir[key], %{}, locale) end}
+
+    steps =
+      for step <- ir["steps"],
+          {item, n} <- Enum.with_index(step["narration"], 1),
+          entry <- narration(step["name"], item, n, registry, backend, locale, manifest_opts),
+          do: entry
+
+    {pairs, problems} =
+      Enum.map_reduce(header ++ steps, [], fn {key, resolve}, problems ->
+        case resolve.() do
+          {:ok, text} -> {{key, text}, problems}
+          {:error, more} -> {nil, problems ++ more}
+        end
+      end)
+
+    if problems == [], do: {:ok, Map.new(pairs)}, else: {:error, Enum.uniq(problems)}
+  end
+
+  defp narration(
+         step,
+         %{"type" => "say", "text" => msgid, "bindings" => bindings},
+         n,
+         registry,
+         backend,
+         locale,
+         opts
+       ) do
+    resolve = fn binding -> label(binding, registry, backend, locale, opts) end
+    names = bindings |> Map.keys() |> Enum.sort()
+
+    labels = for name <- names, do: {"#{step}.ui.#{name}", fn -> resolve.(bindings[name]) end}
+
+    say =
+      {"#{step}.narration.#{n}",
+       fn ->
+         with {:ok, filled} <- resolve_all(names, &resolve.(bindings[&1])) do
+           text(
+             backend,
+             msgid,
+             Map.new(Enum.zip(Enum.map(names, &String.to_existing_atom/1), filled)),
+             locale
+           )
+         end
+       end}
+
+    [say | labels]
+  end
+
+  defp narration(step, %{"text" => msgid}, n, _registry, backend, locale, _opts),
+    do: [{"#{step}.narration.#{n}", fn -> text(backend, msgid, %{}, locale) end}]
+
+  defp resolve_all(names, resolve) do
+    Enum.reduce_while(names, {:ok, []}, fn name, {:ok, acc} ->
+      case resolve.(name) do
+        {:ok, value} -> {:cont, {:ok, acc ++ [value]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 end

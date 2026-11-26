@@ -16,7 +16,10 @@ defmodule AshJourneys.Approval do
     * every declared figure, and nothing else, was captured on a settled page, with
       its raster measured, its highlight box when it declares a highlight, and a
       file whose bytes and pixels hash to what the manifest says;
-    * it ran on the browser build the lock pins (`AshJourneys.Lock`).
+    * it ran on the browser build the lock pins (`AshJourneys.Lock`);
+    * the texts it recorded (`AshJourneys.Manifest`'s `texts`) are what the
+      journey's text and labels resolve to now (`AshJourneys.L10n.texts/3`), so
+      no page names a label its figures do not show.
 
   A candidate missing any of these is refused, with every reason. Nothing that was
   not measured counts as passing.
@@ -28,11 +31,12 @@ defmodule AshJourneys.Approval do
   records their exact hashes. A candidate is **kept** instead, leaving the
   approved run in place, when that run already proves the same declaration on the
   same build and every figure's raster matches it within the lock's tolerance:
-  re-shooting an unchanged journey then changes no committed file. Approval never
+  re-shooting an unchanged journey then changes no committed file. A run that
+  resolved any text differently is approved whole instead. Approval never
   mixes figures from two runs, and never records a hash its files do not have.
   """
 
-  alias AshJourneys.{Json, Lock, Manifest, Raster, Run}
+  alias AshJourneys.{Json, L10n, Lock, Manifest, Raster, Run}
   alias AshJourneys.Manifest.{Figure, Step}
 
   @typedoc "How a figure compares with the approved run's."
@@ -54,15 +58,16 @@ defmodule AshJourneys.Approval do
   @doc """
   Approves run `run_id` under the project root `root` against the journeys
   `declared` (`AshJourneys.Lock.declared/1`). Writes nothing unless every candidate
-  is approvable.
+  is approvable. `opts[:manifest_opts]` are the `AshA2ui.Manifest` options the
+  surfaces render with, for resolving the journeys' labels (`check/4`).
   """
-  @spec approve(Path.t(), String.t(), Lock.declared()) ::
+  @spec approve(Path.t(), String.t(), Lock.declared(), keyword()) ::
           {:ok, %{run: String.t(), pinned: Lock.build() | nil, results: [result()]}}
           | {:error, [String.t()]}
-  def approve(root, run_id, declared) do
+  def approve(root, run_id, declared, opts \\ []) do
     with {:ok, lock} <- Lock.read(root),
          {:ok, candidates} <- Run.load(root, run_id),
-         :ok <- approvable(candidates, declared, lock) do
+         :ok <- approvable(candidates, declared, lock, opts) do
       build = candidates |> hd() |> Map.fetch!(:manifest) |> build()
       results = Enum.map(candidates, &decide(root, &1, lock, build))
       journeys = Enum.reduce(results, lock.journeys, &record(root, &1, &2))
@@ -77,7 +82,7 @@ defmodule AshJourneys.Approval do
     end
   end
 
-  defp approvable(candidates, declared, lock) do
+  defp approvable(candidates, declared, lock, opts) do
     builds =
       for %{manifest: %Manifest{} = manifest} <- candidates, uniq: true, do: build(manifest)
 
@@ -88,7 +93,7 @@ defmodule AshJourneys.Approval do
         ],
         else: []
 
-    case mixed ++ Enum.flat_map(candidates, &check(&1, declared, lock)) do
+    case mixed ++ Enum.flat_map(candidates, &check(&1, declared, lock, opts)) do
       [] -> :ok
       problems -> {:error, problems}
     end
@@ -101,6 +106,7 @@ defmodule AshJourneys.Approval do
 
     kept? =
       approved != nil and approved.hash == manifest.declaration_hash and approved.browser == build and
+        same_texts?(root, manifest) and
         Enum.all?(figures, fn {_key, comparison} -> unchanged?(comparison) end)
 
     %{
@@ -110,6 +116,15 @@ defmodule AshJourneys.Approval do
       figures: figures,
       candidate: candidate
     }
+  end
+
+  defp same_texts?(root, manifest) do
+    dir = Lock.approved_dir(root, manifest.locale, manifest.journey)
+
+    case Manifest.read(Path.join(dir, Manifest.file_name())) do
+      {:ok, approved} -> approved.texts == manifest.texts
+      {:error, _problems} -> false
+    end
   end
 
   defp unchanged?(:unchanged), do: true
@@ -166,28 +181,68 @@ defmodule AshJourneys.Approval do
   @doc """
   Every reason candidate cannot be approved against `declared` and `lock`, each
   prefixed with its journey and locale. `[]` when it can.
+
+  `opts[:manifest_opts]` are the `AshA2ui.Manifest` options the surfaces render
+  with, for the text check. `texts: false` leaves the text check out, for a
+  caller that makes it itself.
   """
-  @spec check(Run.candidate(), Lock.declared(), Lock.t()) :: [String.t()]
-  def check(%{journey: journey, locale: locale} = candidate, declared, lock) do
+  @spec check(Run.candidate(), Lock.declared(), Lock.t(), keyword()) :: [String.t()]
+  def check(%{journey: journey, locale: locale} = candidate, declared, lock, opts \\ []) do
     problems =
       case candidate do
         %{problems: [_ | _] = problems} ->
           problems
 
         %{manifest: %Manifest{} = manifest} ->
-          manifest_problems(manifest, candidate.dir, declared, lock)
+          manifest_problems(manifest, candidate.dir, declared, lock, opts)
       end
 
     Enum.map(problems, &"#{journey}/#{locale}: #{&1}")
   end
 
-  defp manifest_problems(manifest, dir, declared, lock) do
+  @doc """
+  Every reason the run `manifest`, whose figures are in `dir`, cannot be approved
+  against `declared` and `lock`, unprefixed. `check/4` is this for a candidate;
+  `AshJourneys.Lock.verify/6` asks it of an approved run. Options are
+  `check/4`'s.
+  """
+  @spec manifest_problems(Manifest.t(), Path.t(), Lock.declared(), Lock.t(), keyword()) ::
+          [String.t()]
+  def manifest_problems(manifest, dir, declared, lock, opts) do
     case declared[manifest.journey] do
       nil ->
         ["no configured module declares journey #{manifest.journey}"]
 
-      %{ir: ir, hash: hash} ->
-        run_problems(manifest, ir, hash, lock) ++ steps_problems(manifest, ir, dir)
+      %{ir: ir, hash: hash} = journey ->
+        texts =
+          if Keyword.get(opts, :texts, true) and manifest.locale in ir["locales"],
+            do: texts_problems(manifest, journey, Keyword.get(opts, :manifest_opts, [])),
+            else: []
+
+        run_problems(manifest, ir, hash, lock) ++ steps_problems(manifest, ir, dir) ++ texts
+    end
+  end
+
+  @doc """
+  How the texts `manifest` recorded differ from what `journey`'s text resolves to
+  now in its locale (`AshJourneys.L10n.texts/3`), one line per text. `[]` when
+  they are the same.
+  """
+  @spec texts_problems(Manifest.t(), %{module: module(), ir: map()}, keyword()) :: [String.t()]
+  def texts_problems(%Manifest{texts: recorded, locale: locale}, journey, manifest_opts) do
+    case L10n.texts(journey, locale, manifest_opts) do
+      {:ok, ^recorded} ->
+        []
+
+      {:ok, now} ->
+        for key <- Enum.sort(Enum.uniq(Map.keys(recorded) ++ Map.keys(now))),
+            recorded[key] != now[key] do
+          "text #{key} was #{inspect(recorded[key])} in the run, and is now #{inspect(now[key])}; " <>
+            "run it again"
+        end
+
+      {:error, problems} ->
+        Enum.map(problems, &("text does not resolve: " <> &1))
     end
   end
 

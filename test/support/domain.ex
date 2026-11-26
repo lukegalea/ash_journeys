@@ -4,5 +4,6 @@ defmodule AshJourneys.Test.Domain do
 
   resources do
     resource AshJourneys.Test.Member
+    resource AshJourneys.Test.RenamedMember
   end
 end

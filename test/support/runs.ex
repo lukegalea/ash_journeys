@@ -5,7 +5,7 @@ defmodule AshJourneys.Test.Runs do
   break one thing at a time.
   """
 
-  alias AshJourneys.{Json, Lock, Manifest, Raster, Run}
+  alias AshJourneys.{Json, L10n, Lock, Manifest, Raster, Run}
   alias AshJourneys.Manifest.{Figure, Step}
 
   @browser %{name: "chromium", version: "141.0.7390.37", executable: "/opt/chromium/chrome"}
@@ -53,6 +53,7 @@ defmodule AshJourneys.Test.Runs do
   """
   def manifest(declared, run_id, journey, locale, rasters) do
     %{ir: ir, hash: hash} = declared[journey]
+    {:ok, texts} = L10n.texts(declared[journey], locale)
 
     steps =
       ir["steps"]
@@ -105,6 +106,7 @@ defmodule AshJourneys.Test.Runs do
         "reduced_motion" => "reduce"
       },
       retries: 0,
+      texts: texts,
       status: :passed,
       steps: steps
     }

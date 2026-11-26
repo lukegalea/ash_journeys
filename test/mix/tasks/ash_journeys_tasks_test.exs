@@ -63,9 +63,11 @@ defmodule Mix.Tasks.AshJourneysTasksTest do
     Lock.write!(stale, root)
 
     Mix.Task.rerun("ash_journeys.lock", [])
-    assert output() =~ "stale       #{@journey} en: approved bbbbbbbbbbbb"
 
-    assert_raise Mix.Error, ~r/1 journey\(s\) changed after their run was approved/, fn ->
+    assert output() =~
+             "stale       #{@journey} en: stale; the approved run proves bbbbbbbbbbbb"
+
+    assert_raise Mix.Error, ~r/1 journey\(s\) are not proven by their approved run/, fn ->
       Mix.Task.rerun("ash_journeys.lock", ["--check"])
     end
   end
