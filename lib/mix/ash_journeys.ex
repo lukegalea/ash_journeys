@@ -10,7 +10,7 @@ defmodule Mix.AshJourneys do
     Mix.Task.run("compile")
     Mix.Task.run("app.config")
 
-    case Lock.declared(Application.get_env(:ash_journeys, :journeys, [])) do
+    case Lock.declared() do
       {:ok, declared} -> declared
       {:error, problems} -> Mix.raise(Enum.join(problems, "\n"))
     end
