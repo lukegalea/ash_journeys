@@ -109,6 +109,41 @@ defmodule Mix.Tasks.AshJourneysExportTest do
   end
 
   describe "gettext.extract" do
+    test "--check-translated passes when every declared locale but the default has every text" do
+      Mix.Task.rerun("ash_journeys.gettext.extract", ["--check-translated"])
+      assert output() =~ "Every journey text has a translation in every declared locale."
+    end
+
+    test "--check-translated names each text a declared locale has no translation for" do
+      previous = Application.get_env(:gettext, :default_locale)
+      Application.put_env(:gettext, :default_locale, "fr")
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:gettext, :default_locale, previous),
+          else: Application.delete_env(:gettext, :default_locale)
+      end)
+
+      error =
+        assert_raise Mix.Error, fn ->
+          Mix.Task.rerun("ash_journeys.gettext.extract", ["--check-translated"])
+        end
+
+      assert error.message =~ "the msgids are written in fr"
+      assert error.message =~ ~s(remove_a_person/en: "Remove a person")
+      assert error.message =~ ~s(#{@journey}/en: "Revoke a leaver's access")
+      refute error.message =~ "/fr:"
+    end
+
+    test "--check-translated and --check-up-to-date are not given together" do
+      assert_raise Mix.Error, ~r/usage: mix ash_journeys.gettext.extract/, fn ->
+        Mix.Task.rerun("ash_journeys.gettext.extract", [
+          "--check-translated",
+          "--check-up-to-date"
+        ])
+      end
+    end
+
     test "writes the journeys domain, and --check-up-to-date passes on it" do
       Mix.Task.rerun("ash_journeys.gettext.extract", [])
       assert output() =~ "priv/gettext/journeys.pot: "
