@@ -97,6 +97,14 @@ defmodule AshJourneys.Lock do
   def approved_dir(root, locale, journey), do: Path.join([root, @priv, locale, journey])
 
   @doc """
+  The journeys the host names in `config :ash_journeys, journeys: [...]`, as
+  `declared/1` gives them. Every task reads this list, and a host checking a
+  journey reference outside a task reads it here.
+  """
+  @spec declared() :: {:ok, declared()} | {:error, [String.t()]}
+  def declared, do: declared(Application.get_env(:ash_journeys, :journeys, []))
+
+  @doc """
   The journeys `modules` declare (each a module using `AshJourneys.Journeys`), by
   id. Two declarations of one id are a problem: the lock could not tell them apart.
   """

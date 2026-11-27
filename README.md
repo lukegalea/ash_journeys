@@ -114,6 +114,9 @@ Name the modules that declare journeys:
 config :ash_journeys, journeys: [MyApp.Journeys.Offboarding]
 ```
 
+`AshJourneys.Lock.declared/0` reads that list outside the tasks, for a host that
+checks a reference to a journey (in a control file, say).
+
 Then:
 
 | Task | What it does |
