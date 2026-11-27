@@ -10,6 +10,9 @@ defmodule AshJourneys.EvidenceSink do
   @doc """
   Records one run. `manifest` is the run manifest a runner wrote; `ir` is the
   journey's IR (`AshJourneys.Ir`), which carries the declaration hash and metadata.
+  `opts` carries the run's context, as `c:AshJourneys.World.seed/2`'s does: the tenant
+  it ran in, say, which the manifest does not record.
   """
-  @callback record(manifest :: map(), ir :: AshJourneys.Ir.t()) :: :ok | {:error, term()}
+  @callback record(manifest :: map(), ir :: AshJourneys.Ir.t(), opts :: keyword()) ::
+              :ok | {:error, term()}
 end
