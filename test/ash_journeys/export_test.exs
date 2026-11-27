@@ -272,6 +272,20 @@ defmodule AshJourneys.ExportTest do
       refute Map.has_key?(messages, "people_team")
     end
 
+    test "untranslated is every text of a declared locale the catalog does not translate", %{
+      declared: declared
+    } do
+      assert L10n.untranslated(declared, "en") == []
+
+      missing = L10n.untranslated(declared, "fr")
+      assert {"remove_a_person", "en", "Remove a person"} in missing
+
+      assert {"revoke_a_leavers_access", "en",
+              "Open %{surface} and find the person who is leaving."} in missing
+
+      refute Enum.any?(missing, &(elem(&1, 1) == "fr"))
+    end
+
     test "pot is sorted, escaped and stable", %{declared: declared} do
       pot = L10n.pot(L10n.messages(declared))
       assert pot =~ ~s("Domain: journeys\\n")

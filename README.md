@@ -159,7 +159,7 @@ labels `ui/1` interpolates come from the host backend's `a2ui_metadata` and
 
 | Task | What it does |
 |---|---|
-| `mix ash_journeys.gettext.extract` | Writes every msgid the journeys say to `priv/gettext/journeys.pot`. With `--check-up-to-date` it writes nothing and fails when the file differs from what extraction would write. |
+| `mix ash_journeys.gettext.extract` | Writes every msgid the journeys say to `priv/gettext/journeys.pot`. With `--check-up-to-date` it writes nothing and fails when the file differs from what extraction would write. With `--check-translated` it writes nothing and fails when a locale a journey declares (other than Gettext's default locale, the one the msgids are written in) has no translation for a msgid the journey says. |
 | `mix ash_journeys.export` | Writes `docs/journeys/<locale>/<journey>.md` for each journey in each locale it declares, with its figures as `docs/journeys/figures/<digest>.png`. `--out`, and `--figures` with `--figures-ref`, say where. |
 
 `export` reads only `priv/journeys/`: the lock and the approved runs, never a run in

@@ -56,6 +56,35 @@ defmodule AshJourneys.L10n do
     |> Path.relative_to_cwd()
   end
 
+  @doc """
+  The msgids a declared locale has no translation for, as `{journey id, locale,
+  msgid}`: every locale a journey declares except `source`, the locale the msgids
+  are written in, and every msgid the journey says (`messages/1`) that the
+  journey's Gettext backend answers by falling back to the msgid itself. An empty
+  `msgstr` is no translation. Journeys with no backend have nothing to translate.
+  """
+  @spec untranslated(AshJourneys.Lock.declared(), String.t()) ::
+          [{String.t(), String.t(), String.t()}]
+  def untranslated(declared, source) do
+    for {id, %{module: module, ir: ir}} <- Enum.sort(declared),
+        backend = Info.gettext(module),
+        backend != nil,
+        locale <- ir["locales"],
+        locale != source,
+        msgid <- ir |> msgids() |> Enum.uniq(),
+        not translated?(backend, locale, msgid),
+        do: {id, locale, msgid}
+  end
+
+  defp translated?(backend, locale, msgid) do
+    bindings =
+      for [_, name] <- Regex.scan(~r/%\{(\w+)\}/, msgid), into: %{} do
+        {String.to_existing_atom(name), ""}
+      end
+
+    match?({:ok, _}, backend.lgettext(locale, @domain, nil, msgid, bindings))
+  end
+
   @doc "The `.pot` content for `messages/1`, entries sorted by msgid."
   @spec pot(%{String.t() => [String.t()]}) :: String.t()
   def pot(messages) do
